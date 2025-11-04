@@ -32,13 +32,13 @@
     <title>NexusTV - Web Player</title>
 
     <!-- 
-      CSP Corrigido: connect-src * http://127.0.0.1:8080;
+      CSP Corrigido: 
       Permite 'localhost:8080' (nosso proxy) e qualquer origem ('*')
       para garantir que o HLS.js e o proxy funcionem.
     -->
     <meta http-equiv="Content-Security-Policy"
       content="default-src * 'unsafe-inline' 'unsafe-eval' data: blob:;
-               
+               connect-src * http://127.0.0.1:8080;
                img-src * data: blob:;
                media-src * data: blob:;">
 
