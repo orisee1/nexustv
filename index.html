@@ -1,0 +1,1018 @@
+<!--
+  ============================================================================
+  INSTRUÇÕES PARA DESENVOLVIMENTO LOCAL (COM PROXY)
+  ============================================================================
+  
+  Por que um proxy?
+  Muitos streams de IPTV bloqueiam requisições vindas de 'file://' ou 'localhost'
+  (problema de CORS / Referer). Este proxy Node.js atua como um "intermediário"
+  que faz a requisição em seu nome, "enganando" o servidor de origem.
+
+  Como usar:
+  1.  Garanta que você tem o Node.js instalado.
+  2.  No mesmo diretório deste arquivo (index.html), salve os arquivos 'server.js' e 'package.json'.
+  3.  Abra um terminal e rode:
+      npm install
+  4.  Depois de instalar, inicie o servidor:
+      npm start
+  5.  O terminal deve mostrar "Proxy HLS rodando em http://localhost:8080".
+  6.  MANTENHA O TERMINAL ABERTO.
+  7.  Abra este arquivo 'index.html' no seu navegador (localmente ou via Live Server).
+  8.  No script abaixo, a flag 'USE_DEV_PROXY' já está 'true'. Os vídeos
+      agora serão transmitidos através do seu proxy local.
+
+  Para produção ou se não quiser usar o proxy, mude 'USE_DEV_PROXY' para 'false'.
+-->
+<!DOCTYPE html>
+<html lang="pt-br">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NexusTV - Web Player</title>
+
+    <!-- 
+      CSP Corrigido:
+      Permite 'localhost:8080' (nosso proxy) e qualquer origem ('*')
+      para garantir que o HLS.js e o proxy funcionem.
+    -->
+    <meta http-equiv="Content-Security-Policy"
+      content="default-src * 'unsafe-inline' 'unsafe-eval' data: blob:;
+               connect-src * http://127.0.0.1:8080;
+               img-src * data: blob:;
+               media-src * data: blob:;">
+
+    <!-- 1. Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- 2. HLS.js (Video Player) -->
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+
+    <!-- 3. Google Font (Poppins) -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap"
+        rel="stylesheet">
+
+    <!-- 4. Tailwind Config -->
+    <script>
+        tailwind.config = {
+            darkMode: 'class', // Ativa o dark mode baseado na classe 'dark'
+            theme: {
+                extend: {
+                    fontFamily: {
+                        poppins: ['Poppins', 'sans-serif']
+                    },
+                    colors: {
+                        // Cores personalizadas para o tema
+                        dark: {
+                            900: '#0D0D0D', // Gradiente topo
+                            800: '#1A1A1A', // Gradiente base
+                            700: '#2A2A2A', // Cards
+                            600: '#3A3A3A', // Hover
+                        },
+                        light: {
+                            900: '#F0F2F5', // Fundo
+                            800: '#FFFFFF', // Cards
+                            700: '#E4E6EB', // Hover
+                        }
+                    },
+                    boxShadow: {
+                        'glow': '0 0 15px 0 rgba(192, 38, 211, 0.3), 0 0 5px 0 rgba(192, 38, 211, 0.2)',
+                    }
+                }
+            }
+        }
+    </script>
+
+    <!-- 5. Custom CSS (Gradientes, Animação Shimmer, Scrollbar) -->
+    <style>
+        /* Estilização base */
+        body {
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
+
+        /* Tema Dark (Default) */
+        body.dark {
+            background-image: linear-gradient(180deg, #0D0D0D, #1A1A1A);
+            color: #E5E7EB;
+        }
+
+        /* Tema Light */
+        body.light {
+            background-color: #F0F2F5;
+            color: #1F2937;
+        }
+
+        /* Fundo do Sidebar */
+        body.dark #sidebar-nav {
+            background-color: #111111;
+        }
+
+        body.light #sidebar-nav {
+            background-color: #FFFFFF;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+        }
+
+        /* Fundo do Header Mobile */
+        body.dark #mobile-header {
+            background-color: rgba(17, 17, 17, 0.8);
+            backdrop-filter: blur(10px);
+        }
+
+        body.light #mobile-header {
+            background-color: rgba(255, 255, 255, 0.8);
+            backdrop-filter: blur(10px);
+        }
+
+        /* Scrollbar customizada para o Sidebar */
+        #sidebar-content::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        #sidebar-content::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        body.dark #sidebar-content::-webkit-scrollbar-thumb {
+            background: #333;
+            border-radius: 3px;
+        }
+
+        body.dark #sidebar-content::-webkit-scrollbar-thumb:hover {
+            background: #444;
+        }
+
+        body.light #sidebar-content::-webkit-scrollbar-thumb {
+            background: #D1D5DB;
+            border-radius: 3px;
+        }
+
+        body.light #sidebar-content::-webkit-scrollbar-thumb:hover {
+            background: #9CA3AF;
+        }
+
+        /* Animação Shimmer (Skeleton) */
+        @keyframes shimmer {
+            100% {
+                transform: translateX(100%);
+            }
+        }
+
+        .skeleton-card {
+            position: relative;
+            overflow: hidden;
+            border-radius: 0.5rem;
+            /* rounded-lg */
+        }
+
+        body.dark .skeleton-card {
+            background-color: #2A2A2A;
+        }
+
+        body.light .skeleton-card {
+            background-color: #E5E7EB;
+        }
+
+        .skeleton-card::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            bottom: 0;
+            right: 0;
+            transform: translateX(-100%);
+            animation: shimmer 1.5s infinite;
+        }
+
+        body.dark .skeleton-card::after {
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.05), transparent);
+        }
+
+        body.light .skeleton-card::after {
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.5), transparent);
+        }
+
+        /* Aspect ratio para o card */
+        .card-aspect {
+            aspect-ratio: 16 / 10;
+        }
+
+        @media (max-width: 640px) {
+            .card-aspect {
+                aspect-ratio: 9 / 12;
+                /* Mais vertical no mobile */
+            }
+        }
+
+        /* Efeito de overlay no card */
+        .card-overlay {
+            background: linear-gradient(180deg, transparent 50%, rgba(0, 0, 0, 0.8) 100%);
+        }
+
+        body.light .card-overlay {
+            background: linear-gradient(180deg, transparent 60%, rgba(0, 0, 0, 0.7) 100%);
+        }
+
+        /* Botão de play no card */
+        .play-button {
+            opacity: 0;
+            transition: opacity 0.3s ease, transform 0.3s ease;
+            transform: scale(0.8);
+        }
+
+        .group:hover .play-button {
+            opacity: 1;
+            transform: scale(1);
+        }
+
+        /* Dropdown de Debug */
+        .debug-dropdown {
+            display: none;
+            position: absolute;
+            right: 0;
+            top: 100%;
+            margin-top: 8px;
+            margin-right: 8px;
+        }
+
+        .group.relative:hover .debug-dropdown {
+            display: block;
+        }
+    </style>
+</head>
+
+<body class="dark font-poppins antialiased min-h-screen">
+
+    <!-- Container Principal (Layout Desktop) -->
+    <div class="lg:grid lg:grid-cols-[280px_1fr]">
+
+        <!-- ======================================= -->
+        <!-- ============ SIDEBAR (NAV) ============ -->
+        <!-- ======================================= -->
+        <!-- CORREÇÃO: 'w-70' trocado por 'w-[280px]' que é uma classe Tailwind válida -->
+        <aside id="sidebar-nav"
+            class="fixed lg:relative inset-y-0 left-0 z-50 w-[280px] h-screen border-r border-r-white/5 transform -translate-x-full transition-transform duration-300 ease-in-out lg:translate-x-0 dark:border-r-zinc-800 dark:bg-zinc-900/95 light:bg-white light:border-r-gray-200">
+            <div class="flex flex-col h-full">
+                <!-- Logo -->
+                <div class="h-20 flex items-center px-6">
+                    <a href="#" class="flex items-center gap-3">
+                        <svg class="w-8 h-8 text-purple-500" fill="none" viewBox="0 0 24 24" stroke-width="1.5"
+                            stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round"
+                                d="M6 20.25h12m-7.5-3v3m3-3v3m-10.125-3h17.25c.621 0 1.125-.504 1.125-1.125V4.875c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125z" />
+                        </svg>
+                        <span class="font-bold text-xl dark:text-white light:text-black">NexusTV</span>
+                    </a>
+                </div>
+
+                <!-- Search (Desktop) + Theme Toggle -->
+                <div class="px-6 pb-4 flex flex-col gap-4">
+                    <div class="relative">
+                        <input id="search-desktop" type="text" placeholder="Buscar canal..."
+                            class="w-full pl-10 pr-4 py-2.5 rounded-lg text-sm dark:bg-dark-700 light:bg-gray-100 dark:text-gray-200 light:text-gray-800 focus:outline-none focus:ring-2 focus:ring-purple-500">
+                        <div class="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none">
+                            <svg class="w-5 h-5 dark:text-gray-400 light:text-gray-500" fill="none" viewBox="0 0 24 24"
+                                stroke="currentColor" stroke-width="2">
+                                <path stroke-linecap="round" stroke-linejoin="round"
+                                    d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                            </svg>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Lista de Categorias -->
+                <nav id="sidebar-content" class="flex-1 overflow-y-auto px-6">
+                    <ul id="category-list" class="flex flex-col gap-1">
+                        <!-- Categorias serão injetadas aqui pelo JS -->
+                    </ul>
+                </nav>
+
+                <!-- Footer (Theme Toggle) -->
+                <div class="p-6 border-t border-t-white/5 dark:border-t-zinc-800 light:border-t-gray-200">
+                    <button id="theme-toggle"
+                        class="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium dark:bg-dark-700 dark:text-gray-300 light:bg-gray-100 light:text-gray-700 hover:opacity-80 transition-opacity">
+                        <!-- O ícone será injetado pelo JS -->
+                    </button>
+                </div>
+            </div>
+        </aside>
+
+        <!-- ======================================= -->
+        <!-- ========= CONTEÚDO PRINCIPAL ========== -->
+        <!-- ======================================= -->
+        <div id="main-content" class="transition-all duration-300">
+
+            <!-- Header (Mobile) -->
+            <header id="mobile-header"
+                class="sticky top-0 z-40 flex lg:hidden items-center justify-between h-20 px-4 sm:px-6 border-b border-b-white/5 dark:border-b-zinc-800 light:border-b-gray-200">
+                <!-- Botão Menu Mobile -->
+                <button id="sidebar-toggle" class="lg:hidden p-2 rounded-md dark:text-gray-300 light:text-gray-700">
+                    <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16" />
+                    </svg>
+                </button>
+
+                <!-- Logo (Mobile) -->
+                <a href="#" class="flex items-center gap-2">
+                    <svg class="w-7 h-7 text-purple-500" fill="none" viewBox="0 0 24 24" stroke-width="1.5"
+                        stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round"
+                            d="M6 20.25h12m-7.5-3v3m3-3v3m-10.125-3h17.25c.621 0 1.125-.504 1.125-1.125V4.875c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125z" />
+                    </svg>
+                    <span class="font-bold text-lg dark:text-white light:text-black">NexusTV</span>
+                </a>
+
+                <!-- Placeholder para alinhar -->
+                <div class="w-6"></div>
+            </header>
+
+            <!-- Grid de Canais -->
+            <main class="p-4 sm:p-6 lg:p-8">
+                <!-- Barra de Busca (Mobile) -->
+                <div class="relative mb-6 lg:hidden">
+                    <input id="search-mobile" type="text" placeholder="Buscar canal..."
+                        class="w-full pl-10 pr-4 py-3 rounded-lg text-sm dark:bg-dark-700 light:bg-white light:border light:border-gray-300 dark:text-gray-200 light:text-gray-800 focus:outline-none focus:ring-2 focus:ring-purple-500">
+                    <div class="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none">
+                        <svg class="w-5 h-5 dark:text-gray-400 light:text-gray-500" fill="none" viewBox="0 0 24 24"
+                            stroke="currentColor" stroke-width="2">
+                            <path stroke-linecap="round" stroke-linejoin="round"
+                                d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                        </svg>
+                    </div>
+                </div>
+
+                <!-- Título da Categoria Atual -->
+                <h1 id="current-category-title"
+                    class="text-2xl lg:text-3xl font-bold mb-6 dark:text-white light:text-black">
+                    Carregando canais...
+                </h1>
+
+                <!-- Skeleton Loader -->
+                <div id="loading-skeleton"
+                    class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 lg:gap-6">
+                    <!-- Skeletons serão injetados aqui -->
+                </div>
+
+                <!-- Grid de Canais Real -->
+                <div id="channel-grid"
+                    class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 lg:gap-6">
+                    <!-- Canais serão injetados aqui -->
+                </div>
+            </main>
+
+            <footer
+                class="text-center p-6 text-xs dark:text-gray-500 light:text-gray-400 border-t border-t-white/5 dark:border-t-zinc-800 light:border-t-gray-200 mt-10">
+                Criado por Helen Fernanda. Todos os canais são de transmissões públicas (legais).
+            </footer>
+        </div>
+    </div>
+
+    <!-- ======================================= -->
+    <!-- ============ MODAL PLAYER ============= -->
+    <!-- ======================================= -->
+    <div id="player-modal" class="fixed inset-0 z-50 flex items-center justify-center hidden">
+        <!-- Overlay -->
+        <div id="modal-overlay" class="absolute inset-0 bg-black/80 backdrop-blur-sm"></div>
+
+        <!-- Conteúdo do Modal -->
+        <div
+            class="relative z-10 w-full max-w-4xl max-h-[90vh] flex flex-col dark:bg-dark-800 light:bg-white rounded-lg overflow-hidden m-4">
+            <!-- Header do Modal -->
+            <div class="flex items-center justify-between p-4 border-b dark:border-b-zinc-700 light:border-b-gray-200">
+                <div class="flex items-center gap-3 min-w-0">
+                    <img id="modal-channel-logo" src="" alt="Logo do Canal"
+                        class="w-10 h-10 object-contain rounded-md flex-shrink-0">
+                    <h3 id="modal-channel-title"
+                        class="text-lg font-semibold truncate dark:text-white light:text-black">
+                        Carregando...
+                    </h3>
+                </div>
+
+                <!-- Botões de Ação (Debug e Fechar) -->
+                <div class="flex items-center gap-2">
+                    <!-- NOVO: Botão de Debug -->
+                    <div class="group relative">
+                        <button id="debug-menu-toggle"
+                            class="p-2 rounded-full dark:hover:bg-dark-700 light:hover:bg-gray-200">
+                            <svg class="w-6 h-6 dark:text-gray-400 light:text-gray-600" fill="none" viewBox="0 0 24 24"
+                                stroke-width="1.5" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round"
+                                    d="M12 6.75a.75.75 0 110-1.5.75.75 0 010 1.5zM12 12.75a.75.75 0 110-1.5.75.75 0 010 1.5zM12 18.75a.75.75 0 110-1.5.75.75 0 010 1.5z" />
+                            </svg>
+                        </button>
+                        <!-- NOVO: Dropdown de Debug -->
+                        <div
+                            class="debug-dropdown w-48 dark:bg-dark-600 light:bg-white rounded-md shadow-lg py-1 ring-1 dark:ring-zinc-700 light:ring-gray-200">
+                            <button id="test-stream-btn"
+                                class="w-full text-left px-4 py-2 text-sm dark:text-gray-200 light:text-gray-700 dark:hover:bg-dark-700 light:hover:bg-gray-100">
+                                Testar stream público
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Botão de Fechar -->
+                    <button id="modal-close" class="p-2 rounded-full dark:hover:bg-dark-700 light:hover:bg-gray-200">
+                        <svg class="w-6 h-6 dark:text-gray-400 light:text-gray-600" fill="none" viewBox="0 0 24 24"
+                            stroke="currentColor" stroke-width="2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Player -->
+            <div class="relative bg-black" style="aspect-ratio: 16 / 9;">
+                <video id="video-player" class="w-full h-full" controls autoplay></video>
+
+                <!-- Mensagem de Erro (com botão de teste) -->
+                <div id="player-error-message"
+                    class="absolute inset-0 z-10 flex items-center justify-center bg-black/70 hidden">
+                    <div class="text-center text-white p-4">
+                        <svg class="w-12 h-12 mx-auto text-red-500" fill="none" viewBox="0 0 24 24" stroke-width="1.5"
+                            stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round"
+                                d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+                        </svg>
+                        <h4 class="mt-2 text-lg font-semibold">Canal Indisponível</h4>
+                        <p class="text-sm text-gray-300">Este canal parece estar temporariamente fora do ar.</p>
+                        <!-- NOVO: Botão de Teste no Erro -->
+                        <button id="test-stream-btn-error"
+                            class="mt-4 px-4 py-2 text-xs bg-purple-600 hover:bg-purple-700 rounded-md">
+                            Testar stream público
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+<script type="module">
+  import { Capacitor } from 'https://cdn.jsdelivr.net/npm/@capacitor/core@6.1.2/dist/index.js';
+  window.__isNative = Capacitor.isNativePlatform && Capacitor.isNativePlatform();
+</script>
+
+    <!-- ======================================= -->
+    <!-- =========== JAVASCRIPT PURO =========== -->
+    <!-- ======================================= -->
+    <script>
+        // ==========================================================
+        // CONFIGURAÇÕES GLOBAIS
+        // ==========================================================
+
+        // URL da playlist M3U
+        const M3U_URL = 'https://raw.githubusercontent.com/helenfernanda/gratis/main/iptvlegal.m3u';
+
+        /**
+         * [IMPORTANTE] Flag para usar o proxy de desenvolvimento.
+         * Mude para 'true' se estiver rodando o 'server.js' localmente.
+         * Mude para 'false' para carregar streams diretamente (produção).
+         */
+        const USE_DEV_PROXY = true;
+        const DEV_PROXY_URL = 'http://192.168.15.7:8080/proxy?url=';
+
+        const TEST_STREAM_URL = 'https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8';
+
+        // Globais
+        let allChannels = []; // Array de {name, logo, group, url}
+        let categories = {}; // Objeto: { "Group Name": [channel, ...], ... }
+        let hls = null; // Instância HLS.js
+
+        // Ícones SVG
+        const ICONS = {
+            moon: `<svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M21.752 15.002A9.718 9.718 0 0118 15.75c-5.385 0-9.75-4.365-9.75-9.75 0-1.33.266-2.597.748-3.752A9.753 9.753 0 003 11.25C3 16.635 7.365 21 12.75 21a9.753 9.753 0 009.002-5.998z" /></svg><span>Modo Escuro</span>`,
+            sun: `<svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 3v2.25m6.364.386l-1.591 1.591M21 12h-2.25m-.386 6.364l-1.591-1.591M12 18.75V21m-4.773-4.227l-1.591 1.591M5.25 12H3m4.227-4.773L5.636 5.636M15.75 12a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0z" /></svg><span>Modo Claro</span>`,
+            placeholder: `data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA0MDAgMzAwIiB3aWR0aD0iNDAwIiBoZWlnaHQ9IjMwMCIgZmlsbD0iIzJhMmEyYSI+PHJlY3Qgd2lkdGg9IjQwMCIgaGVpZ2h0PSIzMDAiIGZpbGw9IiMyYTJhMmEiLz48dGV4dCB4PSI1MCIgeT0iNTAlIiBkb21pbmFudC1iYXNlbGluZT0ibWlkZGxlIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBmb250LWZhbWlseT0ic2Fucy1zZXJpZiIgZm9udC1zaXplPSIyMHB4IiBmaWxsPSIjNjY2Ij5TZW0gTG9nbzwvdGV4dD48L3N2Zz4=`
+        };
+
+        // Fallback de logo para modo claro
+        const ICONS_LIGHT = {
+            placeholder: `data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA0MDAgMzAwIiB3aWR0aD0iNDAwIiBoZWlnaHQ9IjMwMCIgZmlsbD0iI2U1ZTVlNSI+PHJlY3Qgd2lkdGg9IjQwMCIgaGVpZ2h0PSIzMDAiIGZpbGw9IiNlNWU1ZTUiLz48dGV4dCB4PSI1MCIgeT0iNTAlIiBkb21pbmFudC1iYXNlbGluZT0ibWlkZGxlIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBmb250LWZhbWlseT0ic2Fucy1zZXJpZiIgZm9udC1zaXplPSIyMHB4IiBmaWxsPSIjYmRiZGJkIj5TZW0gTG9nbzwvdGV4dD48L3N2Zz4=`
+        };
+
+        // Elementos do DOM
+        let categoryList, channelGrid, loadingSkeleton, currentCategoryTitle;
+        let sidebarNav, sidebarToggle, mainContent;
+        let modal, modalOverlay, modalClose, videoPlayer, modalChannelTitle, modalChannelLogo, playerErrorMessage;
+        let searchDesktop, searchMobile, themeToggle;
+        let testStreamBtn, testStreamBtnError;
+
+        /**
+         * Inicializa a aplicação quando o DOM estiver pronto
+         */
+        document.addEventListener('DOMContentLoaded', () => {
+            // Seleciona todos os elementos do DOM
+            categoryList = document.getElementById('category-list');
+            channelGrid = document.getElementById('channel-grid');
+            loadingSkeleton = document.getElementById('loading-skeleton');
+            currentCategoryTitle = document.getElementById('current-category-title');
+
+            sidebarNav = document.getElementById('sidebar-nav');
+            sidebarToggle = document.getElementById('sidebar-toggle');
+            mainContent = document.getElementById('main-content');
+
+            modal = document.getElementById('player-modal');
+            modalOverlay = document.getElementById('modal-overlay');
+            modalClose = document.getElementById('modal-close');
+            videoPlayer = document.getElementById('video-player');
+            modalChannelTitle = document.getElementById('modal-channel-title');
+            modalChannelLogo = document.getElementById('modal-channel-logo');
+            playerErrorMessage = document.getElementById('player-error-message');
+
+            searchDesktop = document.getElementById('search-desktop');
+            searchMobile = document.getElementById('search-mobile');
+            themeToggle = document.getElementById('theme-toggle');
+
+            testStreamBtn = document.getElementById('test-stream-btn');
+            testStreamBtnError = document.getElementById('test-stream-btn-error');
+
+            // 1. Configura o tema (claro/escuro)
+            setupTheme();
+
+            // 2. Configura os listeners de eventos
+            setupEventListeners();
+
+            // 3. Renderiza o skeleton loading inicial
+            renderSkeleton(15);
+
+            // 4. Inicia o carregamento da M3U
+            loadM3U(M3U_URL);
+        });
+
+        /**
+         * Configura todos os listeners de eventos da página
+         */
+        function setupEventListeners() {
+            // Toggles do Sidebar
+            sidebarToggle.addEventListener('click', (e) => {
+                e.stopPropagation();
+                sidebarNav.classList.toggle('-translate-x-full');
+            });
+            mainContent.addEventListener('click', () => {
+                sidebarNav.classList.add('-translate-x-full');
+            });
+
+            // Busca (Desktop e Mobile)
+            searchDesktop.addEventListener('input', (e) => handleSearch(e.target.value));
+            searchMobile.addEventListener('input', (e) => handleSearch(e.target.value));
+
+            // Toggle de Tema
+            themeToggle.addEventListener('click', toggleTheme);
+
+            // Fechar Modal
+            modalClose.addEventListener('click', closePlayer);
+            modalOverlay.addEventListener('click', closePlayer);
+            document.addEventListener('keydown', (e) => {
+                if (e.key === 'Escape' && !modal.classList.contains('hidden')) {
+                    closePlayer();
+                }
+            });
+
+            // Botões de Teste
+            const testFn = () => openPlayer({
+                name: 'Teste HLS Público',
+                logo: '',
+                url: TEST_STREAM_URL,
+                isTest: true // Flag para não tentar o proxy
+            });
+            testStreamBtn.addEventListener('click', testFn);
+            testStreamBtnError.addEventListener('click', testFn);
+        }
+
+        /**
+         * Carrega e processa o arquivo M3U
+         */
+        async function loadM3U(url) {
+            try {
+                // O fetch da M3U principal (github) não precisa de proxy, pois o github já permite CORS.
+                const response = await fetch(url);
+                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                const text = await response.text();
+
+                allChannels = parseM3U(text);
+                categories = groupChannels(allChannels);
+
+                renderCategories(categories);
+
+                // Tenta carregar a última categoria vista ou a primeira
+                const lastCategory = localStorage.getItem('lastCategory') || Object.keys(categories)[0] || 'Todos';
+
+                if (categories[lastCategory]) {
+                    renderChannels(lastCategory);
+                    highlightActiveCategory(lastCategory);
+                } else {
+                    // Fallback se a categoria salva não existir mais
+                    const firstCategory = Object.keys(categories)[0];
+                    renderChannels(firstCategory);
+                    highlightActiveCategory(firstCategory);
+                }
+
+            } catch (error) {
+                console.error('Falha ao carregar M3U:', error);
+                currentCategoryTitle.textContent = 'Erro ao carregar canais.';
+            } finally {
+                // Esconde o skeleton após o carregamento
+                loadingSkeleton.classList.add('hidden');
+            }
+        }
+
+        /**
+         * Converte o texto M3U em um array de objetos de canal
+         */
+        function parseM3U(text) {
+            const lines = text.split('\n');
+            const channels = [];
+            let currentChannel = {};
+
+            // Regex para extrair dados da linha #EXTINF
+            const logoRegex = /tvg-logo="([^"]*)"/;
+            const groupRegex = /group-title="([^"]*)"/;
+
+            for (const line of lines) {
+                if (line.startsWith('#EXTINF:')) {
+                    const infoLine = line;
+                    const name = infoLine.split(',').pop()?.trim() || 'Canal Sem Nome';
+                    const logoMatch = infoLine.match(logoRegex);
+                    const groupMatch = infoLine.match(groupRegex);
+
+                    currentChannel = {
+                        name: name,
+                        // Logo NÃO é proxificado. Carrega direto.
+                        logo: logoMatch ? logoMatch[1] : getPlaceholderImage(),
+                        group: (groupMatch ? groupMatch[1].trim() : '') || 'Outros'
+                    };
+
+                    // Fallback extra de logo
+                    if (!currentChannel.logo) {
+                        currentChannel.logo = getPlaceholderImage();
+                    }
+
+                } else if ((line.startsWith('http://') || line.startsWith('https://')) && currentChannel.name) {
+                    currentChannel.url = line.trim();
+
+                    // CORREÇÃO: Mudei de .endsWith('.m3u8') para .includes('.m3u8')
+                    // Isso corrige o bug que filtrava canais com URLs como "master.m3u8?token=..."
+                    if (currentChannel.url.includes('.m3u8')) {
+                        channels.push(currentChannel);
+                    }
+                    currentChannel = {}; // Reseta para o próximo canal
+                }
+            }
+            return channels;
+        }
+
+        /**
+         * Agrupa os canais por categoria
+         */
+        function groupChannels(channels) {
+            const groups = { 'Todos': channels };
+
+            channels.forEach(channel => {
+                const group = channel.group;
+                if (!groups[group]) {
+                    groups[group] = [];
+                }
+                groups[group].push(channel);
+            });
+
+            // Ordena as categorias alfabeticamente, mantendo "Todos" no topo e "Outros" no final
+            const sortedCategories = {};
+            sortedCategories['Todos'] = groups['Todos'];
+
+            Object.keys(groups).sort().forEach(key => {
+                if (key !== 'Todos' && key !== 'Outros') {
+                    sortedCategories[key] = groups[key];
+                }
+            });
+
+            if (groups['Outros']) {
+                sortedCategories['Outros'] = groups['Outros'];
+            }
+
+            return sortedCategories;
+        }
+
+        /**
+         * Renderiza a lista de categorias no sidebar
+         */
+        function renderCategories(categories) {
+            categoryList.innerHTML = ''; // Limpa a lista
+            Object.keys(categories).forEach(group => {
+                const li = document.createElement('li');
+                const channelCount = categories[group].length;
+
+                li.innerHTML = `
+                    <button data-category="${group}" class="category-button w-full text-left flex justify-between items-center px-4 py-2.5 rounded-lg text-sm font-medium dark:text-gray-300 light:text-gray-700 dark:hover:bg-dark-700 light:hover:bg-gray-100 transition-colors duration-200">
+                        <span class="truncate">${group}</span>
+                        <span class="text-xs dark:bg-dark-700 light:bg-gray-100 dark:text-gray-400 light:text-gray-500 px-2 py-0.5 rounded-full">${channelCount}</span>
+                    </button>
+                `;
+
+                li.querySelector('button').addEventListener('click', (e) => {
+                    e.preventDefault();
+                    const categoryName = e.currentTarget.dataset.category;
+                    renderChannels(categoryName);
+                    highlightActiveCategory(categoryName);
+                    localStorage.setItem('lastCategory', categoryName);
+                    // Fecha o sidebar no mobile após clicar
+                    sidebarNav.classList.add('-translate-x-full');
+                });
+
+                categoryList.appendChild(li);
+            });
+        }
+
+        /**
+         * Destaca a categoria ativa no sidebar
+         */
+        function highlightActiveCategory(categoryName) {
+            document.querySelectorAll('.category-button').forEach(btn => {
+                if (btn.dataset.category === categoryName) {
+                    btn.classList.add('dark:bg-purple-600/20', 'dark:text-purple-300', 'light:bg-purple-100', 'light:text-purple-700', 'font-semibold');
+                } else {
+                    btn.classList.remove('dark:bg-purple-600/20', 'dark:text-purple-300', 'light:bg-purple-100', 'light:text-purple-700', 'font-semibold');
+                }
+            });
+        }
+
+        /**
+         * Renderiza os cards de canais no grid principal
+         */
+        function renderChannels(groupName) {
+            // Reseta a busca ao mudar de categoria
+            searchDesktop.value = '';
+            searchMobile.value = '';
+
+            channelGrid.innerHTML = ''; // Limpa o grid
+            currentCategoryTitle.textContent = groupName;
+
+            const channelsToRender = categories[groupName];
+
+            if (!channelsToRender || channelsToRender.length === 0) {
+                channelGrid.innerHTML = `<p class="col-span-full text-center text-gray-500">Nenhum canal encontrado nesta categoria.</p>`;
+                return;
+            }
+
+            const fragment = document.createDocumentFragment();
+
+            channelsToRender.forEach(channel => {
+                const card = document.createElement('div');
+                card.className = 'channel-card group relative rounded-lg overflow-hidden cursor-pointer transition-all duration-300 dark:bg-dark-700 light:bg-white shadow-sm dark:hover:shadow-glow light:hover:shadow-lg hover:!scale-[1.03]';
+                card.dataset.name = channel.name; // Para a função de busca
+
+                card.innerHTML = `
+                    <div class="card-aspect w-full relative">
+                        <!-- Imagem do Canal com Fallback -->
+                        <img 
+                            src="${channel.logo}" 
+                            alt="${channel.name}" 
+                            loading="lazy" 
+                            onerror="this.onerror=null; this.src='${getPlaceholderImage()}'"
+                            class="w-full h-full object-cover"
+                        >
+                        <!-- Overlay Gradiente -->
+                        <div class="card-overlay absolute inset-0"></div>
+                        
+                        <!-- Título do Canal -->
+                        <div class="absolute bottom-0 left-0 right-0 p-3">
+                            <h3 class="text-white text-sm font-semibold truncate shadow-black [text-shadow:_0_1px_2px_var(--tw-shadow-color)]">
+                                ${channel.name}
+                            </h3>
+                        </div>
+                        
+                        <!-- Botão Play (Hover) -->
+                        <div class="play-button absolute inset-0 flex items-center justify-center bg-black/50">
+                            <div class="w-14 h-14 bg-purple-600/80 rounded-full flex items-center justify-center backdrop-blur-sm border-2 border-white/50 shadow-lg">
+                                <svg class="w-6 h-6 text-white ml-1" fill="currentColor" viewBox="0 0 24 24">
+                                    <path d="M6 4l15 8-15 8V4z"></path>
+                                </svg>
+                            </div>
+                        </div>
+                    </div>
+                `;
+
+                card.addEventListener('click', () => openPlayer(channel));
+                fragment.appendChild(card);
+            });
+
+            channelGrid.appendChild(fragment);
+        }
+
+        /**
+         * Renderiza a animação de skeleton
+         */
+        function renderSkeleton(count = 10) {
+            loadingSkeleton.innerHTML = '';
+            for (let i = 0; i < count; i++) {
+                const skeleton = document.createElement('div');
+                skeleton.className = 'skeleton-card card-aspect';
+                loadingSkeleton.appendChild(skeleton);
+            }
+        }
+
+        /**
+         * Abre o modal e inicia a reprodução do vídeo
+         */
+        function openPlayer(channel) {
+            playerErrorMessage.classList.add('hidden'); // Esconde erro anterior
+            modalChannelTitle.textContent = channel.name;
+            modalChannelLogo.src = channel.logo;
+            modalChannelLogo.onerror = () => { modalChannelLogo.src = getPlaceholderImage(); };
+// Se estiver no app (Android/iOS), usar player nativo:
+if (window.__isNative) {
+  // headers que ajudam com provedores FAST
+  const headers = {
+    'User-Agent': 'Mozilla/5.0 (Android) ExoPlayer',
+    'Referer': 'https://pluto.tv/'
+  };
+  // Chama o plugin nativo
+  // @ts-ignore
+  const cap = window.Capacitor;
+  if (cap && cap.Plugins && cap.Plugins.NativePlayer) {
+    cap.Plugins.NativePlayer.play({ url: streamUrl, headers })
+      .catch(err => console.warn('NativePlayer error:', err));
+  } else {
+    console.warn('Plugin NativePlayer não disponível, caindo para Hls.js');
+    // (segue para o caminho web, abaixo)
+  }
+  // Mostramos só o nativo; não abre o modal web para evitar “duplica player”
+  return;
+}
+
+            if (hls) {
+                hls.destroy();
+                hls = null;
+            }
+
+            const streamUrl = channel.url;
+
+            if (Hls.isSupported()) {
+                let hlsConfig = {
+                    // Configurações para tentar reduzir o buffer e lidar com erros
+                    fragLoadingMaxRetry: 4,
+                    manifestLoadingMaxRetry: 2,
+                    levelLoadingMaxRetry: 3,
+                };
+
+                // [NOVA LÓGICA DE PROXY]
+                // Se o proxy estiver ligado E não for o stream de teste,
+                // injeta o 'fetchSetup' para proxificar TODOS os requests do HLS.
+                if (USE_DEV_PROXY && !channel.isTest) {
+                    console.log("Modo Proxy ATIVADO. Usando fetchSetup.");
+                    hlsConfig.fetchSetup = (context, init) => {
+  const proxiedUrl = DEV_PROXY_URL + encodeURIComponent(context.url);
+  // Força CORS “limpo” no Android/WebView:
+  const finalInit = {
+    ...init,
+    mode: 'cors',
+    credentials: 'omit',       // evita cookies/origem estranhos
+    cache: 'no-store'          // reduz surpresas de cache em proxy
+  };
+  return new Request(proxiedUrl, finalInit);
+};
+
+                } else {
+                    console.log("Modo Proxy DESLIGADO ou stream de teste. Carregando diretamente.");
+                }
+
+                hls = new Hls(hlsConfig);
+                hls.loadSource(streamUrl);
+                hls.attachMedia(videoPlayer);
+
+                hls.on(Hls.Events.MANIFEST_PARSED, () => {
+                    videoPlayer.play().catch(e => console.warn("Autoplay bloqueado:", e));
+                });
+
+                hls.on(Hls.Events.ERROR, (event, data) => {
+                    console.error("Erro no HLS.js:", data);
+                    if (data.fatal) {
+                        showPlayerError();
+                        // Não tenta mais reconectar automaticamente, apenas mostra o erro.
+                        // O usuário pode tentar o stream de teste.
+                        hls.destroy();
+                    }
+                });
+
+            } else if (videoPlayer.canPlayType('application/vnd.apple.mpegurl')) {
+                // Navegadores nativos (Safari) não suportam fetchSetup.
+                // O proxy de dev não funcionará aqui. Carrega direto.
+                console.log("Usando player nativo (Safari). Carregando diretamente: " + streamUrl);
+                videoPlayer.src = streamUrl;
+                videoPlayer.addEventListener('loadedmetadata', () => {
+                    videoPlayer.play().catch(e => console.warn("Autoplay bloqueado:", e));
+                });
+                videoPlayer.addEventListener('error', () => {
+                    showPlayerError();
+                });
+            } else {
+                console.error("HLS não é suportado neste navegador.");
+                showPlayerError("Seu navegador não suporta a reprodução deste conteúdo.");
+            }
+
+            modal.classList.remove('hidden');
+        }
+
+
+        /**
+         * Mostra a mensagem de erro no player
+         */
+        function showPlayerError(message = null) {
+            if (message) {
+                playerErrorMessage.querySelector('p').textContent = message;
+            } else {
+                playerErrorMessage.querySelector('p').textContent = "Este canal parece estar temporariamente fora do ar.";
+            }
+            playerErrorMessage.classList.remove('hidden');
+        }
+
+        /**
+         * Fecha o modal e para o vídeo
+         */
+        function closePlayer() {
+            if (hls) {
+                hls.destroy();
+                hls = null;
+            }
+            videoPlayer.pause();
+            videoPlayer.src = '';
+            videoPlayer.removeAttribute('src'); // Garante a parada completa
+            modal.classList.add('hidden');
+            playerErrorMessage.classList.add('hidden');
+        }
+
+        /**
+         * Filtra os canais no grid com base no termo de busca
+         */
+        function handleSearch(searchTerm) {
+            const term = searchTerm.toLowerCase().trim();
+
+            // Sincroniza os dois campos de busca
+            if (document.activeElement === searchDesktop) searchMobile.value = searchTerm;
+            if (document.activeElement === searchMobile) searchDesktop.value = searchTerm;
+
+            const cards = document.querySelectorAll('#channel-grid .channel-card');
+            let hasResults = false;
+
+            cards.forEach(card => {
+                const name = card.dataset.name.toLowerCase();
+                if (name.includes(term)) {
+                    card.classList.remove('hidden');
+                    hasResults = true;
+                } else {
+                    card.classList.add('hidden');
+                }
+            });
+
+            // Opcional: Mostrar mensagem de "Nenhum resultado"
+            // (implementação omitida por simplicidade, mas poderia ser adicionada)
+        }
+
+        /**
+         * Configura o tema inicial (claro/escuro)
+         */
+        function setupTheme() {
+            const savedTheme = localStorage.getItem('theme') || 'dark';
+            if (savedTheme === 'light') {
+                document.body.classList.add('light');
+                document.body.classList.remove('dark');
+                themeToggle.innerHTML = ICONS.moon;
+            } else {
+                document.body.classList.add('dark');
+                document.body.classList.remove('light');
+                themeToggle.innerHTML = ICONS.sun;
+            }
+        }
+
+        /**
+         * Alterna entre tema claro e escuro
+         */
+        function toggleTheme() {
+            if (document.body.classList.contains('dark')) {
+                document.body.classList.remove('dark');
+                document.body.classList.add('light');
+                localStorage.setItem('theme', 'light');
+                themeToggle.innerHTML = ICONS.moon;
+            } else {
+                document.body.classList.remove('light');
+                document.body.classList.add('dark');
+                localStorage.setItem('theme', 'dark');
+                themeToggle.innerHTML = ICONS.sun;
+            }
+            // Atualiza os placeholders se os canais ainda não foram renderizados
+            if (channelGrid.innerHTML === '') {
+                renderSkeleton(15);
+            }
+        }
+
+        /**
+         * Retorna a imagem de placeholder correta para o tema atual
+         */
+        function getPlaceholderImage() {
+            return document.body.classList.contains('dark') ? ICONS.placeholder : ICONS_LIGHT.placeholder;
+        }
+
+    </script>
+</body>
+
+</html>
