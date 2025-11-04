@@ -38,7 +38,7 @@
     -->
     <meta http-equiv="Content-Security-Policy"
       content="default-src * 'unsafe-inline' 'unsafe-eval' data: blob:;
-               connect-src * http://127.0.0.1:8080;
+               connect-src *;
                img-src * data: blob:;
                media-src * data: blob:;">
 
@@ -470,7 +470,8 @@
          * Mude para 'false' para carregar streams diretamente (produção).
          */
         const USE_DEV_PROXY = true;
-        const DEV_PROXY_URL = 'http://192.168.15.7:8080/proxy?url=';
+const DEV_PROXY_URL = 'https://proxy-production-8bbb.up.railway.app/proxy?url=';
+
 
         const TEST_STREAM_URL = 'https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8';
 
